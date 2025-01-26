@@ -8,6 +8,11 @@
  * Maintainer: Soren Friis
  * friissoren2@gmail.com
  */
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <syslog.h>
+#include <string.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -140,7 +145,10 @@ static void cleanup(int exit_code) {
 
         gps_close(&gpsdata);
     }
-
+    if(!config.non_daemon){
+     syslog(LOG_NOTICE, "Closed transmitter daemon with the code:");
+     closelog();
+    }
     exit(exit_code);
 }
 
@@ -255,6 +263,7 @@ void print_help() {
     printf("Program for transmitting static drone ID data on Wi-Fi Beacon or Bluetooth.\n");
     printf("Must be run with sudo rights in order to work.\n");
     printf("Options: b Enable Wi-Fi Beacon transmission\n");
+    printf("         N don't go into background\n");
     printf("         l Enable Bluetooth 4 Legacy Advertising transmission\n");
     printf("           using the non-Extended Advertising HCI API commands\n");
     printf("         4 Enable Bluetooth 4 Legacy Advertising transmission\n");
@@ -300,6 +309,9 @@ static void parse_command_line(int argc, char *argv[], struct config_data *confi
             case 'g':
                 config->use_gps = true;
                 break;
+            case 'N':
+                config->non_daemon = true;
+                break;
             default:
                 break;
         }
@@ -338,6 +350,7 @@ void gps_loop(struct gps_loop_args *args) {
     char gpsd_message[GPS_JSON_RESPONSE_MAX];
     int retries = 0;      // cycles to wait before gpsd timeout
     int read_retries = 0;
+    printf("\nInfo: gps_loop started.\n\n");
     while(true) {
         if(kill_program)
             break;
@@ -347,7 +360,7 @@ void gps_loop(struct gps_loop_args *args) {
         if (!ret) {
             printf("Socket not ready, retrying...\n");
             if (retries++ > MAX_GPS_WAIT_RETRIES) {
-                    fprintf(stderr, "Max socket wait retries reached, exiting...");
+                    printf("\nInfo: Max socket wait retries reached, exiting...");
                 kill_program = true;
                 args->exit_status = 1;
                 pthread_exit((void*) &args->exit_status);
@@ -360,7 +373,7 @@ void gps_loop(struct gps_loop_args *args) {
             if (gps_read(gpsdata, gpsd_message, sizeof(gpsd_message)) == -1) {
                 printf("Failed to read from socket, retrying...\n");
                 if(read_retries++ > MAX_GPS_READ_RETRIES) {
-                    fprintf(stderr, "Max socket read retries reached, exiting...");
+                    printf("\nInfo: Max socket read retries reached, exiting...");
                     kill_program = true;
                     args->exit_status = 1;
                     pthread_exit((void*) &args->exit_status);
@@ -379,8 +392,48 @@ void gps_loop(struct gps_loop_args *args) {
 
 int main(int argc, char *argv[])
 {
+    /* Our process ID and Session ID */
+    pid_t pid, sid;
     parse_command_line(argc, argv, &config);
+    if(!config.non_daemon)
+    {
+      /* Fork off the parent process */
+      pid = fork();
+      // Open system logs for the child process
+      openlog("transmit", LOG_NOWAIT | LOG_PID, LOG_USER);
+      syslog(LOG_NOTICE, "Successfully started transmitter daemon");
 
+      if (pid < 0) {
+         syslog(LOG_ERR, "Daemon: could not get positive PID, leaving from daemonisation");
+         cleanup(EXIT_FAILURE);
+      }
+      /* If we got a good PID, then
+      we can exit the parent process. */
+      if (pid > 0) {
+          syslog(LOG_NOTICE, "Daemon: we got a good PID, exit the parent process required for the daemonisation");
+          cleanup(EXIT_SUCCESS);
+      }
+
+      /* Change the file mode mask */
+      umask(0);
+      /* Open any logs here */
+      /* Create a new SID for the child process */
+      sid = setsid();
+      if (sid < 0) {
+          /* Log the failure */
+          syslog(LOG_ERR, "Daemon: could not create a new SID for the child process");
+          cleanup(EXIT_FAILURE);
+      }
+      /* Change the current working directory */
+      if ((chdir("/")) < 0) {
+         /* Log the failure */
+         syslog(LOG_ERR, "Daemon: could not change the current working directory");
+         cleanup(EXIT_FAILURE);
+      }
+      /* Close out the standard file descriptors */
+      cleanup(STDIN_FILENO && STDOUT_FILENO && STDERR_FILENO);
+      /* Daemon-specific initialization ends here */
+    }
     config.handle_bt4 = 0; // The Extended Advertising set number used for BT4
     config.handle_bt5 = 1; // The Extended Advertising set number used for BT5
 
@@ -409,7 +462,9 @@ int main(int argc, char *argv[])
             fprintf(stderr,
                     "No gpsd running or network error: %d, %s\n",
                     errno, gps_errstr(errno));
-            cleanup(EXIT_FAILURE);
+                    if(!config.non_daemon){
+                       syslog(LOG_ERR, "No gpsd running");}
+                    cleanup(EXIT_FAILURE);
         }
 
         struct gps_loop_args args;
@@ -422,7 +477,14 @@ int main(int argc, char *argv[])
             if(kill_program)
                 break;
 
-            printf("Transmitting...\n");
+
+            if(!config.non_daemon){
+               syslog(LOG_NOTICE, "Transmitting...");
+            }
+            else
+            {
+              printf("Transmitting...\n"); 
+            }
             if (config.use_packs)
                 send_packs(&uasData, &config);
             else
