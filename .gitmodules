@@ -7,6 +7,3 @@
 [submodule "core-c"]
 	path = core-c
 	url = ../opendroneid-core-c.git
-[submodule "gpsd"]
-	path = gpsd
-	url = https://gitlab.com/gpsd/gpsd.git
