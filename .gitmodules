@@ -7,3 +7,7 @@
 [submodule "core-c"]
 	path = core-c
 	url = ../opendroneid-core-c.git
+[submodule "gpsd"]
+	path = gpsd
+	url = git@github.com:gulliversoft/gpsd.git
+	branch = DroneID_RPIW2
