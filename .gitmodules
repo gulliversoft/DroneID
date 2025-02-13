@@ -1,12 +1,15 @@
 [submodule "hostapd"]
 	path = hostapd
 	url = https://w1.fi/hostap.git
+	branch = hostap_2_9
 [submodule "bluez"]
 	path = bluez
 	url = https://git.kernel.org/pub/scm/bluetooth/bluez.git
+	branch = 5.53
 [submodule "core-c"]
 	path = core-c
-	url = ../opendroneid-core-c.git
+	url = git@github.com:opendroneid/opendroneid-core-c.git
+	branch = v2.0
 [submodule "gpsd"]
 	path = gpsd
 	url = git@github.com:gulliversoft/gpsd.git
